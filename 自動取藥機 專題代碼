@@ -1,0 +1,301 @@
+#include  <Servo.h>
+
+// 定義繼電器引腳
+const int relayPin1 = 31;
+const int relayPin2 = 33;
+const int relayPin3 = 32;
+const int relayPin4 = 34;
+
+// 步進馬達參數
+int baseStep = 50;
+int stepsToMove = 0;
+int reverseStepsToMove = 0; // 新增變量記錄反轉的步數
+
+int stepperSpeed = 100;
+int currentStep = 0;
+
+// 伺服馬達參數
+int baseServoTime = 3000;
+int servoDuration = 0;
+int reverseServoDuration = 0; // 新增變量記錄反轉的時間
+bool stepperFinished = false;
+bool servoFinished = false;
+bool pin10ServoExecuted = false; // 標記pin10伺服馬達是否已執行
+bool pin11ServoExecuted = false; // 標記pin11伺服馬達是否已執行
+unsigned long pin10DelayStart = 0; // 記錄pin10的延遲開始時間
+const unsigned long pin10DelayDuration = 2000; // pin10的延遲時間
+
+// 伺服馬達對象
+Servo myServo;
+Servo myServoPin10; // 新增伺服馬達對象
+Servo myServoPin11; // 新增控制pin11的伺服馬達對象
+int servoPosition = 90;
+
+// 極限開關引腳
+const int limitSwitchPinStepper = 52;
+const int limitSwitchPinServo = 51;
+
+// 時間追蹤
+unsigned long previousStepperMillis = 0;
+unsigned long previousServoMillis = 0;
+
+// 極限開關標誌
+bool stepperLimitTriggered = false;
+bool servoLimitTriggered = false;
+
+void setup() {
+  pinMode(relayPin1, OUTPUT);
+  pinMode(relayPin2, OUTPUT);
+  pinMode(relayPin3, OUTPUT);
+  pinMode(relayPin4, OUTPUT);
+  setRelaysLow();
+
+  Serial.begin(9600);
+  Serial.println("請輸入input (例如: 11): ");
+
+  pinMode(limitSwitchPinStepper, INPUT_PULLUP);
+  pinMode(limitSwitchPinServo, INPUT_PULLUP);
+
+  myServo.attach(9);
+  myServo.write(servoPosition);
+
+  myServoPin10.attach(10); // 初始化pin10的伺服馬達
+  myServoPin10.write(90); // 停止在90度
+
+  myServoPin11.attach(11); // 初始化pin11的伺服馬達
+  myServoPin11.write(0); // 初始化pin11伺服馬達位置到0度
+}// 設置所有繼電器為低電平
+void setRelaysLow() {
+  digitalWrite(relayPin1, LOW);
+  digitalWrite(relayPin2, LOW);
+  digitalWrite(relayPin3, LOW);
+  digitalWrite(relayPin4, LOW);
+}// 步進馬達控制正函數
+void stepMotorNonBlocking() {
+  unsigned long currentMillis = millis();
+
+  // 檢查步進馬達的極限開關狀態
+  if (digitalRead(limitSwitchPinStepper) == LOW) {
+    stepperLimitTriggered = true;  // 標記步進馬達極限開關已觸發
+    stepsToMove = 0;  // 強制停止步進馬達
+    setRelaysLow(); // 停止所有馬達
+    Serial.println("步進馬達極限開關已觸發，停止動作"); // 調試信息
+    return; // 直接返回，停止執行後續的邏輯
+  }
+
+  // 如果步進馬達的極限開關沒有觸發
+  if (!stepperLimitTriggered && currentMillis - previousStepperMillis >= stepperSpeed && stepsToMove > 0) {
+    previousStepperMillis = currentMillis;
+
+    switch (currentStep % 4) {
+      case 0:
+        digitalWrite(relayPin1, HIGH);
+        digitalWrite(relayPin4, LOW);
+        break;
+      case 1:
+        digitalWrite(relayPin1, LOW);
+        digitalWrite(relayPin2, HIGH);
+        break;
+      case 2:
+        digitalWrite(relayPin2, LOW);
+        digitalWrite(relayPin3, HIGH);
+        break;
+      case 3:
+        digitalWrite(relayPin3, LOW);
+        digitalWrite(relayPin4, HIGH);
+        break;
+    }
+
+    currentStep++;
+    stepsToMove--;
+
+    if (stepsToMove == 0) {
+      setRelaysLow();
+      stepperFinished = true;
+      Serial.print("步進馬達已完成移動 ");
+      Serial.print(currentStep);
+      Serial.println(" 步");
+    }
+  }
+}// 步進馬達控反函數
+void stepMotorNonBlockingA() {
+  unsigned long currentMillis = millis();
+
+  // 檢查步進馬達的極限開關狀態
+  if (digitalRead(limitSwitchPinStepper) == LOW) {
+    stepperLimitTriggered = true;  // 標記步進馬達極限開關已觸發
+    stepsToMove = 0;  // 強制停止步進馬達
+    setRelaysLow(); // 停止所有馬達
+    Serial.println("步進馬達極限開關已觸發，停止動作"); // 調試信息
+    return; // 直接返回，停止執行後續的邏輯
+  }
+
+  // 如果步進馬達的極限開關沒有觸發
+  if (!stepperLimitTriggered && currentMillis - previousStepperMillis >= stepperSpeed && stepsToMove > 0) {
+    previousStepperMillis = currentMillis;
+
+    switch (currentStep % 4) {
+      case 0:
+        digitalWrite(relayPin1, LOW);
+        digitalWrite(relayPin4, HIGH);
+        break;
+      case 1:
+        digitalWrite(relayPin4, LOW);
+        digitalWrite(relayPin3, HIGH);
+        break;
+      case 2:
+        digitalWrite(relayPin3, LOW);
+        digitalWrite(relayPin2, HIGH);
+        break;
+      case 3:
+        digitalWrite(relayPin2, LOW);
+        digitalWrite(relayPin1, HIGH);
+        break;
+    }
+
+    currentStep++;
+    stepsToMove--;
+
+    if (stepsToMove == 0) {
+      setRelaysLow();
+      stepperFinished = true;
+      Serial.print("步進馬達已完成移動 ");
+      Serial.print(currentStep);
+      Serial.println(" 步");
+    }
+  }
+}// 伺服馬達控制正函數
+void moveServoNonBlocking() {
+  unsigned long currentMillis = millis();
+
+  // 控制伺服馬達
+  if (!servoLimitTriggered && (currentMillis - previousServoMillis < servoDuration) && !servoFinished) {
+    myServo.write(0); 
+  } else {
+    myServo.write(90); // 停止伺服馬達
+    if (currentMillis - previousServoMillis >= servoDuration) {
+      servoFinished = true;
+    }
+  }
+}
+// 檢查伺服馬達的極限開關狀態
+void checkServoLimitSwitch() {
+  if (digitalRead(limitSwitchPinServo) == LOW) {
+    servoLimitTriggered = true;  // 標記伺服馬達極限開關已觸發
+    servoDuration = 0;  // 強制停止伺服馬達
+    myServo.write(90);  // 停止伺服馬達
+    servoFinished = true;
+    Serial.println("伺服馬達極限開關已觸發，停止動作");
+  }
+}
+
+// 伺服馬達控制反函數
+void moveServoNonBlockingA() {
+  unsigned long currentMillis = millis();
+
+  // 控制伺服馬達
+  if (!servoLimitTriggered && (currentMillis - previousServoMillis < servoDuration) && !servoFinished) {
+    myServo.write(180); 
+  } else {
+    myServo.write(90); // 停止伺服馬達
+    if (currentMillis - previousServoMillis >= servoDuration) {
+      servoFinished = true;
+    }
+  }
+
+  // 檢查伺服馬達的極限開關狀態
+  checkServoLimitSwitch();
+}
+
+// 控制pin10伺服馬達的函數
+void controlServoPin10(bool isForward) {
+  if (isForward) {
+    myServoPin10.write(0); // 正轉
+    delay(2000); // 等待10秒
+  } else {
+    myServoPin10.write(180); // 反轉
+    delay(2000); // 等待10秒
+  }
+  myServoPin10.write(90); // 停止
+  pin10ServoExecuted = true; // 設置標記為已執行
+}
+
+// 控制pin11伺服馬達的函數
+void controlServoPin11(bool close) {
+  if (close) {
+    myServoPin11.write(50); // 夾取動作
+    delay(1000); // 持續1秒
+  } else {
+    myServoPin11.write(0); // 鬆開
+  }
+}
+
+void loop() {
+  // 讀取並處理串口輸入
+  if (Serial.available()) {
+    delay(100);  // 添加短暫延遲以確保完整讀取串口數據
+    String inputString = Serial.readStringUntil('\n'); 
+
+    // 檢查輸入格式是否為兩位數字
+    if (inputString.length() == 2 && isDigit(inputString[0]) && isDigit(inputString[1])) {
+      int inputNumber = inputString.toInt();
+
+      if (inputNumber > 0) {
+        Serial.print("輸入的值為: ");
+        Serial.println(inputNumber);
+
+        int quotient = inputNumber / 10;
+        int remainder = (inputNumber % 10) - 1;
+
+        stepsToMove = quotient * baseStep; // 計算步進馬達的移動步數
+        servoDuration = remainder * baseServoTime; // 計算伺服馬達的持續時間
+
+        Serial.print("步進馬達將移動 ");
+        Serial.print(stepsToMove);
+        Serial.println(" 步");
+        Serial.print("伺服馬達將旋轉 ");
+        Serial.print(servoDuration / 1000);
+        Serial.println(" 秒");
+
+        previousStepperMillis = millis();
+        previousServoMillis = millis();
+
+        stepperLimitTriggered = false;  // 重置極限開關標誌
+        servoLimitTriggered = false;
+
+        stepperFinished = false;
+        servoFinished = false;
+        pin10ServoExecuted = false; // 重置pin10伺服馬達標誌
+        pin11ServoExecuted = false; // 重置pin11伺服馬達標誌
+
+        // 執行馬達控制
+        while (!stepperFinished || !servoFinished) {
+          stepMotorNonBlockingA();
+          moveServoNonBlockingA();
+        }
+
+        if (!pin10ServoExecuted) {
+          controlServoPin10(true); // 正轉pin10伺服馬達
+          delay(2000); // 延遲2秒
+          controlServoPin11(true); // 閉合pin11伺服馬達
+          controlServoPin10(false); // 反轉pin10伺服馬達
+        }
+        stepperFinished = false;
+        servoFinished = false;
+        stepsToMove = quotient * baseStep; // 計算步進馬達的移動步數
+        //servoDuration = remainder * baseServoTime;
+        previousServoMillis = millis();
+        while (!stepperFinished || !servoFinished) {
+          stepMotorNonBlocking();
+          moveServoNonBlocking();
+        }          // 反轉完成後延遲2秒
+        delay(2000);
+        controlServoPin11(false); // 鬆開夾爪
+      } else {
+        Serial.println("請輸入大於 0 的數字");
+      }
+    } else {
+      Serial.println("請輸入兩位數字，例如：11");
+    }
+  }
+}
